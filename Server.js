@@ -1,1 +1,102 @@
+const { spawn } = require("child_process");
+const axios = require("axios");
+const logger = require("./utils/log");
 
+///////////////////////////////////////////////////////////
+//========= Create website for dashboard/uptime =========//
+///////////////////////////////////////////////////////////
+
+const express = require('express');
+const path = require('path');
+
+const app = express();
+const port = process.env.PORT || 8080;
+
+// Serve the index.html file
+app.get('/', function (req, res) {
+    res.sendFile(path.join(__dirname, '/index.html'));
+});
+
+// Start the server and add error handling
+app.listen(port, () => {
+    logger(`Server is running on port ${port}...`, "[ Rudra ]");
+}).on('error', (err) => {
+    if (err.code === 'EACCES') {
+        logger(`Permission denied. Cannot bind to port ${port}.`, "[ Rudra ]");
+    } else {
+        logger(`Server error: ${err.message}`, "[ Rudra ]");
+    }
+});
+
+/////////////////////////////////////////////////////////
+//========= Start bot with auto-restart on crash =======//
+/////////////////////////////////////////////////////////
+
+global.countRestart = global.countRestart || 0;
+
+function startBot(message) {
+    if (message) logger(message, "[ Rudra ]");
+
+    const child = spawn("node", ["--trace-warnings", "--async-stack-traces", "rudra.js"], {
+        cwd: __dirname,
+        stdio: "inherit",
+        shell: true
+    });
+
+    child.on("close", (codeExit) => {
+        if (codeExit !== 0 && global.countRestart < 5) {
+            global.countRestart++;
+            logger(`Bot exited with code ${codeExit}. Restarting... (${global.countRestart}/5)`, "[ Rudra ]");
+            startBot();
+        } else {
+            logger(`Bot stopped after ${global.countRestart} restarts.`, "[ Rudra ]");
+        }
+    });
+
+    child.on("error", (error) => {
+        logger(`An error occurred: ${JSON.stringify(error)}`, "[ Rudra ]");
+    });
+}
+
+////////////////////////////////////////////////
+//========= Check update from GitHub =========//
+////////////////////////////////////////////////
+
+axios.get("https://raw.githubusercontent.com/priyanshu192/bot/main/package.json")
+    .then((res) => {
+        logger(res.data.name, "[ Rudra ]");
+        logger(`Version: ${res.data.version}`, "[ Rudra ]");
+        logger(res.data.description, "[ Rudra ]");
+    })
+    .catch((err) => {
+        logger(`Failed to fetch update info: ${err.message}`, "[ Rudra ]");
+    });
+
+// Start the bot
+startBot();
+
+////////////////////////////////////////////////
+//========= Render Keep-Alive (1 min) =========//
+////////////////////////////////////////////////
+
+const RENDER_URL = "https://rudra-new.onrender.com"; // 🔹 Render URL
+
+// Initial ping on start
+(async () => {
+    try {
+        await axios.get(RENDER_URL);
+        logger("✅ Initial Render ping done, bot awake!", "[ Rudra ]");
+    } catch (err) {
+        logger(`⚠️ Initial ping failed: ${err.message}`, "[ Rudra ]");
+    }
+})();
+
+// Ping every 1 minute to prevent Render free-tier sleep
+setInterval(async () => {
+    try {
+        await axios.get(RENDER_URL);
+        logger("✅ Render pinged automatically to stay awake", "[ Rudra ]");
+    } catch (err) {
+        logger(`⚠️ Render ping failed: ${err.message}`, "[ Rudra ]");
+    }
+}, 60 * 1000); // 1 minute
